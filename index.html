@@ -2,7 +2,7 @@
 <html lang="tr" data-link="ble">
 <head>
 <meta charset="utf-8" />
-<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
 <meta name="theme-color" content="#0e141b" />
 <title>Masa saati</title>
 <style>
@@ -27,7 +27,7 @@
   }
   * { box-sizing: border-box; }
   body { margin: 0; min-height: 100dvh; background: linear-gradient(var(--bg), var(--bg2) 60%); }
-  main { max-width: 460px; margin: 0 auto; padding: max(14px, env(safe-area-inset-top)) 18px 40px; }
+  main { max-width: 460px; margin: 0 auto; padding: 14px 18px 40px; }
   [hidden] { display: none !important; }
   button, input, select { font: inherit; color: inherit; }
   button { cursor: pointer; border: 0; background: none; }
@@ -161,7 +161,7 @@
     <div class="gifnote" id="mGif" hidden><div><b id="mGifName">GIF</b>ekranda oynuyor</div></div>
   </section>
 
-  <button class="power" id="power" disabled>Bağlanınca kullanılabilir</button>
+  <button class="power" id="power">Karta bağlan</button>
   <p class="hint" id="hint" role="status" aria-live="polite"></p>
 
   <div id="controls" aria-disabled="true">
@@ -287,6 +287,17 @@
   </form>
 </dialog>
 
+<script>
+// Shows any script error on the page itself (phones have no console).
+window.addEventListener('error', function (e) {
+  var el = document.getElementById('hint');
+  if (el) { el.className = 'hint err'; el.textContent = 'Sayfa hatası: ' + (e.message || e) + (e.lineno ? ' (satır ' + e.lineno + ')' : ''); }
+});
+window.addEventListener('unhandledrejection', function (e) {
+  var el = document.getElementById('hint');
+  if (el) { el.className = 'hint err'; el.textContent = 'Hata: ' + ((e.reason && e.reason.message) || e.reason); }
+});
+</script>
 <script>
 /* DeskClock GIF tool: decode any GIF, fit it to the 320x172 screen, re-encode.
    No dependencies (the maintenance panel works offline from the card's own AP). */
@@ -588,6 +599,7 @@ const GifTool = (() => {
 </script>
 <script>
 'use strict';
+{ // block scope: no global names that could clash with window properties (Safari is strict here)
 const $ = (id) => document.getElementById(id);
 const MAINT = document.documentElement.dataset.link === 'wifi';
 const UUID = (n) => '6e40000' + n + '-b5a3-f393-e0a9-e50e24dcca9e';
@@ -613,7 +625,7 @@ const PROFILE_HELP = [
   'Hiçbir uygulamanın kullanmadığı F15 tuşuna aralıklarla dokunur; imleç hiç kıpırdamaz.',
 ];
 
-let status = null, pin = '', linked = false, device = null, rx = null, tx = null;
+let devStatus = null, pin = '', linked = false, device = null, rx = null, tx = null;
 let manualClose = false, statusAt = 0;
 
 /* ---------- transport: one command at a time, no UI lock ---------- */
@@ -701,7 +713,7 @@ function fmtTimer(sec) {
   return Math.ceil(sec / 60) + ' dk';
 }
 function render(s) {
-  status = s;
+  devStatus = s;
   statusAt = Date.now();
   const st = stateOf(s);
   document.documentElement.style.setProperty('--state', st.color);
@@ -748,7 +760,7 @@ function tick() {
   $('mTime').innerHTML = String(now.getHours()).padStart(2, '0') + '<i>:</i>' + String(now.getMinutes()).padStart(2, '0');
   $('mDate').innerHTML = DAYS[now.getDay()] + ' <span>' + now.getDate() + ' ' + MONTHS[now.getMonth()] + '</span>';
   $('mTag').textContent = linked ? (MAINT ? 'Wi-Fi' : 'BLE') : '';
-  const left = status && status.timerSec ? Math.max(0, status.timerSec - (Date.now() - statusAt) / 1000) : 0;
+  const left = devStatus && devStatus.timerSec ? Math.max(0, devStatus.timerSec - (Date.now() - statusAt) / 1000) : 0;
   $('mTimer').hidden = !left;
   if (left) $('mTimer').textContent = fmtTimer(left);
   $('timerHelp').textContent = left ? 'Kalan ' + fmtTimer(left) + '. Süre bitince hareket durur.' : 'Süre bitince hareket durur.';
@@ -763,9 +775,10 @@ function setLinked(on, detail = '') {
   $('connect').textContent = on ? (MAINT ? 'Yenile' : 'Bağlantıyı kes') : 'Bağlan';
   $('controls').setAttribute('aria-disabled', String(!on));
   if (!on) {
-    $('power').disabled = true;
+    // While disconnected the big button is the way in (easier to hit on phones).
+    $('power').disabled = false;
     $('power').classList.remove('is-on');
-    $('power').textContent = 'Bağlanınca kullanılabilir';
+    $('power').textContent = MAINT ? 'Panele giriş yap' : 'Karta bağlan';
   }
   tick();
 }
@@ -874,7 +887,8 @@ $('connect').onclick = async () => {
 };
 
 /* ---------- controls ---------- */
-$('power').onclick = () => act(status && status.requested ? 'off' : 'on', status && status.requested ? 'Hareket durduruldu' : 'Hareket başladı, ilk dokunuş birkaç saniye içinde');
+$('power').onclick = () => (!linked ? $('connect').onclick() : powerToggle());
+const powerToggle = () => act(devStatus && devStatus.requested ? 'off' : 'on', devStatus && devStatus.requested ? 'Hareket durduruldu' : 'Hareket başladı, ilk dokunuş birkaç saniye içinde');
 $('prof').onclick = (e) => { const b = e.target.closest('button'); if (b) act('profile:' + b.dataset.v, PROFILES[b.dataset.v] + ' profili seçildi'); };
 $('theme').onclick = (e) => { const b = e.target.closest('button'); if (b) act('theme:' + b.dataset.v, THEMES[b.dataset.v][0] + ' teması seçildi'); };
 $('font').onclick = (e) => { const b = e.target.closest('button'); if (b) act('font:' + b.dataset.v, FONTS[b.dataset.v] + ' seçildi'); };
@@ -891,7 +905,7 @@ $('timerPick').onclick = (e) => {
   let m = b.dataset.m;
   if (m === 'end') {
     const now = new Date(), cur = now.getHours() * 60 + now.getMinutes();
-    m = (status.schedEnd - cur + 1440) % 1440 || 1440;
+    m = (devStatus.schedEnd - cur + 1440) % 1440 || 1440;
   }
   act('timer:' + m, +m ? fmtTimer(m * 60) + ' boyunca çalışacak' : 'Süre iptal edildi');
 };
@@ -936,8 +950,8 @@ setInterval(() => { if (linked && !document.hidden) refresh().catch(() => {}); }
 async function loadArchive(initial = false) {
   const a = await http('/archive');
   $('files').replaceChildren(...a.files.map((p) => new Option(p.replace('/', ''), p)));
-  if (status) $('files').value = status.gif;
-  if (initial) { $('lat').value = a.lat; $('lon').value = a.lon; $('always').checked = status.alwaysWifi; }
+  if (devStatus) $('files').value = devStatus.gif;
+  if (initial) { $('lat').value = a.lat; $('lon').value = a.lon; $('always').checked = devStatus.alwaysWifi; }
 }
 /* ---------- GIF tool (maintenance) ---------- */
 const GIF_STEPS = [
@@ -982,7 +996,7 @@ async function prepareGif() {
     gifResult = res;
     gifResult.name = GifTool.safeName(file.name);
     $('gifPreview').src = URL.createObjectURL(new Blob([res.bytes], { type: 'image/gif' }));
-    const freeKb = status ? status.fsTotal - status.fsUsed : Infinity;
+    const freeKb = devStatus ? devStatus.fsTotal - devStatus.fsUsed : Infinity;
     const kb = Math.ceil(res.bytes.length / 1024);
     $('gifSummary').textContent = gifResult.name + ' · ' + kb + ' KB' + (kb * 2 > freeKb ? ' · yer yetersiz olabilir' : '');
     $('gifGo').disabled = false;
@@ -1161,6 +1175,7 @@ if (MAINT) {
   startSession().catch((e) => say(e.message, true));
 }
 tick();
+}
 </script>
 </body>
 </html>
